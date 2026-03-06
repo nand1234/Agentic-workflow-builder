@@ -1,8 +1,9 @@
 # SKILL: Workflow PRD Generator
-# Version: 4.0
+# Version: 5.0
 # Role: Transform a user's idea into a complete FlowMind automation system.
 #       Saves ALL files to disk. Compiles to PLAN.json for token-efficient execution.
 #       Agent reads only PLAN.json at runtime — never re-reads skill files.
+#       Production hardened: validated outputs, checkpoints, secrets, merge points.
 
 ---
 
@@ -138,8 +139,9 @@ Always create files in this exact order so dependencies are clear:
 7. workflows/<branch>.md     ← one per branch, in decision order
 8. AGENT.md                  ← lean runtime agent (no skill knowledge)
 9. PLAN.json                 ← compiled execution plan (built from all above)
-10. EXECUTION.md             ← human-readable run guide
-11. README.md                ← always last
+10. .env.example             ← all required env vars, no real values
+11. EXECUTION.md             ← human-readable run guide
+12. README.md                ← always last
 ```
 
 Files 1–7 are the SOURCE (human-readable, version-controlled).
@@ -449,6 +451,38 @@ Status: SIMULATED | SENT
 ## Fallback
 API CALL FAILED — target unknown or payload missing. Check API_TARGET and PAYLOAD_TEMPLATE.
 ```
+
+---
+
+### .env.example
+Generate this file listing every secret the workflow needs. No real values — only
+variable names with descriptive comments. The runner reads from actual `.env` at runtime.
+
+```bash
+# .env.example — <Workflow Title>
+# Copy to .env and fill in real values before running
+
+# Anthropic
+ANTHROPIC_API_KEY=                    # Required. Get from console.anthropic.com
+
+# <Service 1 name>
+<SERVICE_1>_WEBHOOK_URL=              # Required. e.g. https://hooks.slack.com/...
+<SERVICE_1>_API_KEY=                  # Required if auth type is bearer token
+
+# <Service 2 name — if exists>
+<SERVICE_2>_API_KEY=                  # Required.
+<SERVICE_2>_BASE_URL=                 # Required. e.g. https://api.notion.com/v1
+
+# Optional tuning
+WORKFLOW_CHECKPOINT_DIR=./.checkpoints  # Default: ./.checkpoints
+WORKFLOW_LOG_LEVEL=info                 # Default: info. Options: debug|info|warn|error
+```
+
+Rules:
+- Every `$ENV_VAR` referenced in PLAN.json must have a matching entry here
+- Add a comment explaining where to get each key
+- Group by service
+- Never commit `.env` — only commit `.env.example`
 
 ---
 
@@ -772,8 +806,10 @@ export ANTHROPIC_API_KEY=your_key
 2. PLAN.json is the runtime format — compiled once, executed cheaply
 3. The agent reads only PLAN.json — never skill files at runtime
 4. Steps are stateless — each step receives only the context_keys it needs
-5. Workflows are composable — skills call other skills
-6. Fail gracefully — every step has on_fail + fallback_value
+5. Outputs are validated — every step checks its schema before passing forward
+6. Execution is resumable — checkpoints prevent re-running completed steps
+7. Secrets stay outside code — all credentials live in .env, referenced as $VAR
+8. Branches can merge — non-terminal branches rejoin the main flow via merge_back
 ```
 
 ---
@@ -860,6 +896,15 @@ Return ONLY this — no preamble, no explanation:
 }
 ```
 
+## Branch Merge Points
+When a branch has `"merge_back": "<step_id>"`:
+1. Run all branch steps normally
+2. Merge branch output keys into the main context
+3. Resume main workflow execution from the step with that id
+4. Steps already checkpointed before the branch are not re-run
+
+If `merge_back` is absent, the branch is terminal — workflow ends after branch completes.
+
 ## Decision steps
 When type = "DECIDE", evaluate `prompt` against context and return:
 ```json
@@ -869,6 +914,33 @@ When type = "DECIDE", evaluate `prompt` against context and return:
   "output": {
     "next_branch": "<branch-name>"
   }
+}
+```
+
+## Checkpointing
+When a step has `"checkpoint": true`:
+1. After the step output passes validation, the runner saves context to:
+   `<checkpoint_dir>/after_<step_id>.json`
+2. On next run, the runner checks for this file first
+3. If found, skip to the step AFTER the checkpoint — do not re-run completed steps
+4. Steps with side effects (type = "API") are always marked checkpoint: true automatically
+   to prevent duplicate API calls on retry
+
+## Output Validation (ALWAYS run before returning)
+After generating output, validate it against the step's `validate_output` block:
+1. Check all `required_fields` are present in output — if missing, set to fallback_value
+2. Check `field_types` — if a field is the wrong type, attempt to cast it; if cast fails, use fallback
+3. Check `non_null` — if any of these fields are null, return status: "failed" with error message
+4. Check `ranges` — if a numeric field is out of range, clamp to nearest boundary and log a warning
+
+If validation fails and cannot be recovered:
+```json
+{
+  "step_id": "<id>",
+  "status": "failed",
+  "error": "Validation failed: <field> is <actual> but expected <expected>",
+  "fallback_used": true,
+  "output": { "<fallback_value fields>" }
 }
 ```
 
@@ -899,7 +971,9 @@ Save as: `<OUTPUT_BASE>/PLAN.json`
     "language": "<USER_LANGUAGE>",
     "api_client": "<USER_API_CLIENT>",
     "total_steps": <n>,
-    "branches": ["<branch-1>", "<branch-2>", "<fallback>"]
+    "branches": ["<branch-1>", "<branch-2>", "<fallback>"],
+    "checkpoint_dir": "./.checkpoints/<workflow-name>/",
+    "resume_from_checkpoint": true
   },
 
   "steps": [
@@ -912,7 +986,13 @@ Save as: `<OUTPUT_BASE>/PLAN.json`
       "output_schema": ["<field1>", "<field2>", "<field3>"],
       "context_keys": ["<field1>", "<field2>"],
       "on_fail": "retry",
-      "fallback_value": { "<field1>": null, "<field2>": "unknown" }
+      "fallback_value": { "<field1>": null, "<field2>": "unknown" },
+      "validate_output": {
+        "required_fields": ["<field1>", "<field2>"],
+        "field_types": { "<field1>": "string", "<field2>": "float", "<field3>": "array" },
+        "non_null": ["<field1>"],
+        "ranges": { "<field2>": { "min": 0.0, "max": 1.0 } }
+      }
     },
     {
       "id": "step_2",
@@ -945,6 +1025,7 @@ Save as: `<OUTPUT_BASE>/PLAN.json`
       "output_schema": ["file_content", "filename"],
       "context_keys": ["filename"],
       "save_output_to": "outputs/<filename>",
+      "checkpoint": true,
       "on_fail": "abort"
     },
     {
@@ -954,15 +1035,20 @@ Save as: `<OUTPUT_BASE>/PLAN.json`
       "prompt": "Build a JSON payload for a <METHOD> request to <service>. Use these context values: <list fields>. Return only the payload object.",
       "input_from": "context",
       "output_schema": ["payload"],
-      "api_target": "<service URL or placeholder>",
+      "api_target": "$<SERVICE>_WEBHOOK_URL",
       "method": "<POST|GET>",
-      "on_fail": "log_and_continue"
+      "checkpoint": true,
+      "retry": { "max_attempts": 3, "backoff_seconds": [1, 3, 10] },
+      "auth": { "type": "env_header", "header": "Authorization", "env_var": "$<SERVICE>_API_KEY" },
+      "on_fail": "log_and_continue",
+      "validate_response": { "expected_status": [200, 201], "on_unexpected": "log_and_continue" }
     }
   ],
 
   "branches": {
     "<branch-name-1>": {
       "triggered_by": "step_3.next_branch == \"<branch-name-1>\"",
+      "merge_back": "step_4",
       "steps": [
         {
           "id": "branch_1_step_1",
@@ -1033,6 +1119,79 @@ It must be 100% self-contained — the agent reads NOTHING else.
 **Bad PLAN.json prompt example (never do this):**
 ```json
 "prompt": "Follow the TRANSFORMER.md skill to summarise the input data."
+```
+
+---
+
+### Prompt Engineering Templates Per Step Type
+
+Use these fill-in-the-blank templates when writing each `prompt` field in PLAN.json.
+These are battle-tested patterns that produce consistent, parseable agent output.
+
+#### TRANSFORM prompt template
+```
+Parse the <domain> data in context.<input_field>.
+Extract the following fields exactly:
+- <field1> (<type>): <what it represents>
+- <field2> (<type>): <what it represents>
+- <field3> (<bool>): true if <condition>, false otherwise
+If a field cannot be extracted, set it to null — never invent values.
+Return ONLY a JSON object with these exact keys: <field1>, <field2>, <field3>.
+```
+
+#### SUMMARIZE prompt template
+```
+Analyse the <domain> content in context.<input_field>.
+Produce these values:
+- <score_field> (float 0.0–1.0): <what 0 means> at 0.0, <what 1 means> at 1.0
+- <category_field> (string): one of "<cat1>" | "<cat2>" | "<cat3>"
+- <themes_field> (array of strings): up to <n> key themes, most important first
+- <flag_field> (string | null): <what it captures>, or null if not present
+- <level_field> (string): one of "low" | "medium" | "high" based on <criteria>
+Return ONLY a JSON object with these exact keys: <score_field>, <category_field>,
+<themes_field>, <flag_field>, <level_field>.
+```
+
+#### DECIDE prompt template
+```
+Evaluate the following rules in order against the context values provided.
+Return the branch name of the FIRST rule that is true. If no rule matches, return the fallback.
+
+Rules:
+1. If context.<field> <operator> <value> → return "<branch-name-1>"
+2. If context.<field> <operator> <value> → return "<branch-name-2>"
+3. If context.<field> == "<value>" AND context.<other_field> > <n> → return "<branch-name-3>"
+Fallback → return "<default-branch>"
+
+Return ONLY a JSON object: { "next_branch": "<branch-name>" }
+Do not explain your reasoning.
+```
+
+#### EXECUTE prompt template
+```
+Generate a <format> file using the data in context.
+The file must contain exactly these sections:
+1. <Section name>: Use context.<field> for the value
+2. <Section name>: List each item in context.<array_field> as a bullet
+3. <Section name>: Based on context.<score_field>, write <n> sentences about <topic>
+4. Recommendations: Generate 3 specific, actionable recommendations based on context.<field>
+5. Next Steps: List 2-3 concrete next steps appropriate for context.<branch_field>
+
+Use real values from context — never invent or estimate data.
+Return a JSON object with two keys:
+- "filename": "<specific-domain-filename.md>"
+- "file_content": "<complete file content as a string>"
+```
+
+#### API prompt template
+```
+Build a JSON payload for a <METHOD> HTTP request to <service name>.
+Use these exact values from context:
+- Set payload.<payload_field> to context.<context_field>
+- Set payload.<payload_field2> to context.<context_field2>
+- Set payload.<static_field> to the literal string "<static value>"
+The payload must be valid JSON. Do not include any fields not listed above.
+Return ONLY a JSON object: { "payload": { <fields> } }
 ```
 
 ---
@@ -1387,6 +1546,12 @@ Before saving any file, verify:
 | Eval traces clean | All dry-run traces PASS before eval file is saved |
 | Prompt self-contained | Every PLAN.json step prompt works standalone — zero references to .md files |
 | Agent stays lean | AGENT.md contains no workflow knowledge — protocol only |
+| Prompts use templates | Every PLAN.json prompt follows the step-type template — no freeform |
+| validate_output present | Every step has required_fields, field_types, non_null defined |
+| Checkpoints on side effects | Every API step and every EXECUTE step has checkpoint: true |
+| No hardcoded secrets | All API targets use $ENV_VAR format — no literal keys or URLs |
+| .env.example complete | Every $ENV_VAR in PLAN.json has a matching entry in .env.example |
+| Branches have merge_back | All non-terminal branches define merge_back step id |
 
 If any check fails, fix the file before moving to the next one.
 
