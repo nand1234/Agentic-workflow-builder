@@ -1,10 +1,17 @@
 ---
-name: Cypress Test Standards
-description: >
-  Read before writing any Cypress test code. Use this skill whenever
-  generating, modifying, or reviewing Cypress spec files, page objects,
-  custom commands, or cypress.config.ts. Covers folder structure, Page
-  Object Model, selectors, waits, API tests, and clean code standards.
+name: cypress-standards
+description: Read this before writing any Cypress test code. Use this skill
+  whenever generating, modifying, or reviewing Cypress spec files, page objects,
+  custom commands, helper classes, fixtures, or cypress.config.ts. Enforces
+  Page Object Model, centralised JSON test data, helper classes with step()
+  annotations, and shared custom commands for cross-page logic. Always trigger
+  this skill for any Cypress-related task, even if the user only asks for a
+  single test or a small change.
+---
+
+# Cypress Test Standards
+
+Every file generated or modified must comply with these standards. No exceptions.
 
 ---
 
@@ -16,22 +23,23 @@ description: >
 |---|---|
 | **Single Responsibility** | One custom command per action. One spec file per feature. One `it()` block tests one observable behaviour. |
 | **Open/Closed** | Page classes are open for extension, closed for modification. Add new behaviour by creating a new command or extending the page class — never editing shared commands to handle a special case. |
-| **Liskov Substitution** | If you have page classes, any subclass must work wherever the base is expected. Don't override methods with incompatible return types. |
+| **Liskov Substitution** | Any page subclass must work wherever the base is expected. Don't override methods with incompatible return types. |
 | **Interface Segregation** | Don't add commands to `commands.ts` that only one test needs. One-off helpers belong in the spec file or a local helper, not in global commands. |
-| **Dependency Inversion** | Tests depend on commands and page abstractions, not on raw `cy.get()` chains. The spec file never calls `cy.get('[data-testid="..."]')` directly. |
+| **Dependency Inversion** | Tests depend on commands and page abstractions, not on raw `cy.get()` chains. Spec files never call `cy.get('[data-testid="..."]')` directly. |
 
 ### DRY — Never Repeat These
 
-- Selectors → Page Object class or custom command. **Never** inline `cy.get('#submit')` in a spec.
-- Login → `cy.login()` custom command only. **Never** repeat `cy.visit('/login'); cy.get(...).type(...)` in a test.
-- URLs → Cypress `baseUrl` config + `ROUTES` constants. **Never** write `http://localhost:3000` in a spec.
-- Credentials → `Cypress.env()` loaded from `.env.test`. **Never** hardcode in source.
-- Repeated assertions → custom commands (`cy.expectErrorMessage()`).
-- API calls → `cy.apiRequest()` custom command or `cy.request()` wrappers.
+- **Selectors** → Page Object class or custom command. Never inline `cy.get('#submit')` in a spec.
+- **Login** → `cy.login()` custom command only. Never repeat `cy.visit('/login'); cy.get(...).type(...)` in a test.
+- **URLs** → `ROUTES` constants + Cypress `baseUrl`. Never write `http://localhost:3000` in a spec.
+- **Credentials** → `Cypress.env()` loaded from `.env.test`. Never hardcode in source.
+- **Test data** → JSON fixture files only. Never hardcode names, emails, or values in specs.
+- **Repeated assertions** → custom commands (`cy.expectErrorMessage()`).
+- **API calls** → `cy.apiRequest()` custom command.
 
 ### Clean Code Rules
 
-- **Command names describe behaviour**: `cy.login()`, `cy.addItemToCart()`, `cy.expectCheckoutSuccess()` — not `cy.doStuff()`.
+- **Command names describe behaviour**: `cy.login()`, `cy.addItemToCart()`, `cy.expectCheckoutSuccess()`.
 - **No comments explaining *what* the code does** — it should be self-explanatory. Comments only explain *why* a non-obvious thing is done.
 - **Max 15 lines per `it()` block** — if longer, extract actions to commands or page methods.
 - **No `cy.wait(N)` anywhere** — use `cy.intercept().wait()` or assertions instead.
@@ -46,43 +54,156 @@ description: >
 cypress/
 ├── e2e/                          ← One folder per feature
 │   └── [feature]/
-│       └── [feature].cy.ts       ← Imports: page, commands, constants only
-├── api/                          ← API tests (cy.request based, no browser UI)
+│       └── [feature].cy.ts
+├── api/                          ← API tests (cy.request based, no UI)
 │   └── [resource]/
 │       └── [resource].cy.ts
 ├── support/
-│   ├── commands.ts               ← Global custom commands (DRY actions)
+│   ├── commands.ts               ← Global custom commands (cross-page, DRY actions)
 │   ├── e2e.ts                    ← Global hooks and imports
 │   └── pages/                   ← Page Object classes
 │       ├── BasePage.ts
 │       └── [Feature]Page.ts
-├── fixtures/                     ← Static test data (JSON)
+├── helpers/                      ← Helper classes with business logic
+│   └── [Feature]Helper.ts
+├── fixtures/                     ← ALL test data lives here as JSON
 │   └── [feature].json
-├── constants/                    ← ROUTES, HTTP_STATUS, ERROR_MESSAGES
-│   └── index.ts
-└── helpers/                      ← Utility functions (data generators, etc)
-    └── data.helper.ts
+└── constants/                    ← ROUTES, HTTP_STATUS, ERROR_MESSAGES
+    └── index.ts
 ```
 
 **Naming rules:**
 - Spec files: `[feature].cy.ts` — lowercase, hyphenated
 - Page classes: `[Feature]Page.ts` — PascalCase
+- Helper classes: `[Feature]Helper.ts` — PascalCase
 - Fixtures: `[feature].json` — lowercase, hyphenated
 - Commands: camelCase verb phrases (`loginAsAdmin`, `addItemToCart`)
 
 ---
 
-## 3. Custom Commands
+## 3. Test Data — Centralised in JSON Fixtures
 
-All shared, reusable actions live in `cypress/support/commands.ts`. This is the DRY hub.
+**All test data lives in `cypress/fixtures/`**. No hardcoded strings, emails, names, or values anywhere in specs, page objects, or helpers.
+
+```json
+// cypress/fixtures/users.json
+{
+  "valid": {
+    "email": "testuser@example.com",
+    "password": "SecurePass123!",
+    "name": "Test User"
+  },
+  "admin": {
+    "email": "admin@example.com",
+    "password": "AdminPass123!",
+    "name": "Admin User"
+  },
+  "invalid": {
+    "email": "wrong@example.com",
+    "password": "badpass"
+  }
+}
+```
+
+```json
+// cypress/fixtures/products.json
+{
+  "basic": {
+    "name": "Basic Widget",
+    "sku": "WGT-001",
+    "price": 9.99
+  },
+  "premium": {
+    "name": "Premium Widget",
+    "sku": "WGT-PRO",
+    "price": 49.99
+  }
+}
+```
+
+**Loading fixtures in specs:**
+
+```typescript
+// Load at the top of the spec — never inline
+const users = require('../../fixtures/users.json')
+const products = require('../../fixtures/products.json')
+
+it('logs in with valid credentials', () => {
+  loginPage.loginWith(users.valid.email, users.valid.password)
+})
+```
+
+**Rules:**
+- One fixture file per domain (`users.json`, `products.json`, `orders.json`).
+- Never duplicate data across fixture files — reference a single source.
+- Fixture values must not be reassigned or mutated in tests.
+- If a test needs unique data per run (e.g. unique email), generate it in a helper — never hardcode a timestamp in the spec.
+
+---
+
+## 4. Helper Classes
+
+Helper classes contain **business logic, data generation, and multi-step utilities** that don't belong in page objects or commands. Every public method must use `cy.step()` to describe what it is doing.
+
+```typescript
+// cypress/helpers/CheckoutHelper.ts
+
+export class CheckoutHelper {
+
+  /**
+   * Generates a unique guest email to avoid conflicts across test runs.
+   */
+  generateGuestEmail(): string {
+    cy.step('Generate unique guest email for test run')
+    const timestamp = Date.now()
+    return `guest+${timestamp}@example.com`
+  }
+
+  /**
+   * Builds an order payload from fixture data.
+   * Use when seeding an order via API before a UI test.
+   */
+  buildOrderPayload(product: { sku: string; price: number }, quantity: number) {
+    cy.step('Build order payload from product fixture data')
+    return {
+      items: [{ sku: product.sku, quantity, unitPrice: product.price }],
+      total: product.price * quantity,
+    }
+  }
+
+  /**
+   * Seeds an order directly via API so the UI test starts at the right state.
+   */
+  seedOrder(token: string, product: { sku: string; price: number }, quantity = 1) {
+    cy.step('Seed order via API to set up UI test precondition')
+    const payload = this.buildOrderPayload(product, quantity)
+    cy.apiRequest('POST', '/orders', payload, token)
+      .its('status')
+      .should('eq', 201)
+  }
+}
+```
+
+**Rules:**
+- Every public method starts with `cy.step('...')` — plain English description of what the step does.
+- Helper classes contain **no selectors** and make **no UI assertions** — that belongs in page objects.
+- Helpers may call `cy.apiRequest()` to seed or clean up data.
+- One helper class per domain (`CheckoutHelper`, `UserHelper`, `ProductHelper`).
+- Instantiate in `beforeEach` or at the top of the `describe` block, not inside `it()`.
+
+---
+
+## 5. Custom Commands — Cross-Page Shared Logic
+
+`cypress/support/commands.ts` is the home for **any action or assertion used across more than one page or spec**. If it's used in only one place, it does not belong here.
 
 ```typescript
 // cypress/support/commands.ts
 
 // ─── Auth ──────────────────────────────────────────────────────────
 
-// Uses cy.session() — login runs once and is cached per [email, password] pair
 Cypress.Commands.add('login', (email?: string, password?: string) => {
+  cy.step('Login via session cache')
   const user = email ?? Cypress.env('TEST_USER_EMAIL')
   const pass = password ?? Cypress.env('TEST_USER_PASSWORD')
 
@@ -97,7 +218,6 @@ Cypress.Commands.add('login', (email?: string, password?: string) => {
     },
     {
       validate: () => {
-        // Re-login if session is expired
         cy.request({ url: '/api/auth/me', failOnStatusCode: false })
           .its('status')
           .should('eq', 200)
@@ -108,43 +228,37 @@ Cypress.Commands.add('login', (email?: string, password?: string) => {
 
 // ─── Selectors ─────────────────────────────────────────────────────
 
-// Wraps data-testid lookup — the only place this pattern lives
 Cypress.Commands.add('getByTestId', (id: string) =>
   cy.get(`[data-testid="${id}"]`)
 )
 
-// Role-based selector wrapper for consistency
-Cypress.Commands.add('getByRole', (role: string, options?: { name: string | RegExp }) => {
-  const nameAttr = options?.name
-    ? `[name="${options.name}"], [aria-label="${options.name}"]`
-    : ''
-  return cy.get(`[role="${role}"]${nameAttr}`)
-})
+Cypress.Commands.add('getByRole', (role: string, options?: { name: string | RegExp }) =>
+  cy.get(`[role="${role}"]`).contains(options?.name ?? '')
+)
 
 // ─── API ───────────────────────────────────────────────────────────
 
-// All API calls in tests go through this — never raw cy.request() in specs
 Cypress.Commands.add('apiRequest', <T>(
   method: string,
   path: string,
   body?: unknown,
   token?: string
 ) => {
-  const apiUrl = Cypress.env('apiUrl')
+  cy.step(`API ${method} ${path}`)
   return cy.request<T>({
     method,
-    url: `${apiUrl}${path}`,
+    url: `${Cypress.env('apiUrl')}${path}`,
     body,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    failOnStatusCode: false,   // always handle status in the test assertion
+    failOnStatusCode: false,
   })
 })
 
-// Get auth token for API tests
 Cypress.Commands.add('getAuthToken', (email?: string, password?: string) => {
+  cy.step('Get auth token via API')
   const user = email ?? Cypress.env('TEST_USER_EMAIL')
   const pass = password ?? Cypress.env('TEST_USER_PASSWORD')
   return cy
@@ -154,13 +268,14 @@ Cypress.Commands.add('getAuthToken', (email?: string, password?: string) => {
 
 // ─── Common Assertions ─────────────────────────────────────────────
 
-// Reusable assertion commands — reduces duplication across specs
 Cypress.Commands.add('expectToastMessage', (text: string) => {
-  cy.getByRole('alert').should('be.visible').and('contain.text', text)
+  cy.step(`Expect toast message: "${text}"`)
+  cy.get('[role="alert"]').should('be.visible').and('contain.text', text)
 })
 
 Cypress.Commands.add('expectErrorMessage', (text: string) => {
-  cy.getByRole('alert').should('be.visible').and('contain.text', text)
+  cy.step(`Expect error message: "${text}"`)
+  cy.get('[role="alert"]').should('be.visible').and('contain.text', text)
 })
 
 // ─── Type declarations ─────────────────────────────────────────────
@@ -180,64 +295,66 @@ declare global {
 }
 ```
 
-### Rules
-
-- Every shared action goes here — **one source of truth**.
-- Commands are **verb phrases**: `login`, `addItemToCart`, `expectCheckoutSuccess`.
+**Rules:**
+- Commands are for **cross-page, cross-spec** shared logic only.
+- Every command uses `cy.step()` to describe what it does.
 - Commands do **one thing** — no giant commands that login AND navigate AND assert.
-- If a command is only used in one spec, it doesn't belong here. Put it in that spec file.
 - Always declare TypeScript types at the bottom. No untyped commands.
+- `failOnStatusCode: false` is set inside `cy.apiRequest()` — never in the spec.
 
 ---
 
-## 4. Page Object Classes
+## 6. Page Object Classes
 
-Cypress doesn't enforce Page Objects but they're essential for DRY selectors at scale.
+Page objects encapsulate **selectors and UI interactions** for a single page or major component. Every public method uses `cy.step()`.
 
 ```typescript
 // cypress/support/pages/LoginPage.ts
 
 import { ROUTES, ERROR_MESSAGES } from '../../constants'
 
-// Page classes in Cypress return chainable commands, not async/await
 export class LoginPage {
-  // ─── Navigation ─────────────────────────────────────────────
+
   visit() {
+    cy.step('Navigate to login page')
     cy.visit(ROUTES.LOGIN)
     return this
   }
 
-  // ─── Actions ────────────────────────────────────────────────
-  // Fluent interface — methods return `this` to allow chaining
   fillEmail(email: string) {
+    cy.step(`Enter email: ${email}`)
     cy.getByTestId('email-input').clear().type(email)
     return this
   }
 
   fillPassword(password: string) {
+    cy.step('Enter password')
     cy.getByTestId('password-input').clear().type(password)
     return this
   }
 
   submit() {
+    cy.step('Click sign in button')
     cy.getByRole('button', { name: /sign in/i }).click()
     return this
   }
 
-  // Compound action — acceptable, steps always done together
+  // Compound action — steps always done together
   loginWith(email: string, password: string) {
     return this.fillEmail(email).fillPassword(password).submit()
   }
 
   clickForgotPassword() {
+    cy.step('Click forgot password link')
     cy.getByRole('link', { name: /forgot password/i }).click()
     return this
   }
 
   // ─── Assertions ─────────────────────────────────────────────
-  // Assert methods start with "expect"
+
   expectErrorMessage(text: string) {
-    cy.expectErrorMessage(text)   // delegates to shared command
+    cy.step(`Expect error message: "${text}"`)
+    cy.expectErrorMessage(text)
     return this
   }
 
@@ -246,6 +363,7 @@ export class LoginPage {
   }
 
   expectToBeVisible() {
+    cy.step('Expect login page to be visible')
     cy.url().should('include', ROUTES.LOGIN)
     cy.getByTestId('email-input').should('be.visible')
     return this
@@ -253,31 +371,18 @@ export class LoginPage {
 }
 ```
 
-**Fluent interface usage in specs:**
-
-```typescript
-const loginPage = new LoginPage()
-
-loginPage
-  .visit()
-  .fillEmail('wrong@example.com')
-  .fillPassword('badpass')
-  .submit()
-  .expectInvalidCredentialsError()
-```
-
-### Rules
-
-- Page methods return `this` for fluent chaining — don't return `cy.chainable` unless necessary.
-- Locators (`cy.getByTestId(...)`) live **inside** page methods — never exposed as properties.
-- Assertion methods start with `expect`.
-- Action methods are verb phrases, not noun phrases.
+**Rules:**
+- Every public method starts with `cy.step('...')`.
+- Methods return `this` for fluent chaining.
+- Locators live **inside** page methods — never exposed as properties.
+- Assertion methods are prefixed with `expect`.
+- Action methods are verb phrases (`fillEmail`, `submit`, `clickForgotPassword`).
+- Page classes have **no knowledge of other pages**.
 - One class per page or major UI component.
-- Classes don't know about other pages — navigation to another page belongs in the spec or a flow helper.
 
 ---
 
-## 5. Spec File Structure
+## 7. Spec File Structure
 
 ```typescript
 // cypress/e2e/auth/login.cy.ts
@@ -286,47 +391,39 @@ import { LoginPage } from '../../support/pages/LoginPage'
 import { DashboardPage } from '../../support/pages/DashboardPage'
 import { ROUTES } from '../../constants'
 
-// Load test data once at the top
+// All test data from fixtures — never hardcoded
 const users = require('../../fixtures/users.json')
 
-// ─── Describe = one feature or scenario group ──────────────
 describe('Login', () => {
   let loginPage: LoginPage
 
-  // ─── Setup ────────────────────────────────────────────────
   beforeEach(() => {
     loginPage = new LoginPage()
     loginPage.visit()
   })
 
-  // ─── Test names: plain English, describe the behaviour ────
   it('redirects to dashboard with valid credentials', () => {
     const dashboard = new DashboardPage()
-
     loginPage.loginWith(users.valid.email, users.valid.password)
-
     dashboard.expectToBeVisible()
     dashboard.expectWelcomeMessage(users.valid.name)
   })
 
   it('shows error message with wrong password', () => {
-    loginPage.loginWith(users.valid.email, 'wrongpassword')
-
+    loginPage.loginWith(users.valid.email, users.invalid.password)
     loginPage.expectInvalidCredentialsError()
-    loginPage.expectToBeVisible()   // stayed on login page
+    loginPage.expectToBeVisible()
   })
 
   it('shows validation error when email is empty', () => {
     loginPage.fillPassword(users.valid.password).submit()
-
     loginPage.expectErrorMessage('Email is required')
   })
 })
 
-// ─── Separate describe for different auth state ────────────
 describe('Login — already authenticated', () => {
   beforeEach(() => {
-    cy.login()   // uses shared command — session cached
+    cy.login()
   })
 
   it('redirects logged-in user away from login page', () => {
@@ -336,24 +433,23 @@ describe('Login — already authenticated', () => {
 })
 ```
 
-### Rules
-
-- Import from `../../constants` and `../../fixtures` — not hardcoded values.
-- `beforeEach` contains only setup — never assertions.
-- `it()` names are plain English: "shows error with wrong password", not "test login error".
-- Each `it()` is independent — no shared state between tests.
-- `cy.login()` in `beforeEach` for authenticated tests — never inline login steps.
-- No business logic in spec files. No `if` statements.
+**Rules:**
+- Import from `../../constants` and `../../fixtures` only — no hardcoded values.
+- `beforeEach` contains setup only — never assertions.
+- `it()` names are plain English describing observable behaviour.
+- Each `it()` tests exactly one thing and is independent.
+- No `cy.get()` calls in spec files — all selectors go through page objects or commands.
+- No `if` statements or business logic in spec files.
+- Max 15 lines per `it()` block.
 
 ---
 
-## 6. API Tests
+## 8. API Tests
 
 ```typescript
 // cypress/api/auth/login.cy.ts
-// Tests HTTP contract directly — no page objects needed
 
-import { HTTP_STATUS, ERROR_MESSAGES } from '../../constants'
+import { HTTP_STATUS } from '../../constants'
 
 const users = require('../../fixtures/users.json')
 
@@ -372,11 +468,10 @@ describe('POST /auth/login', () => {
   it('returns 401 for invalid password', () => {
     cy.apiRequest('POST', '/auth/login', {
       email: users.valid.email,
-      password: 'wrong',
+      password: users.invalid.password,
     }).then(({ status, body }) => {
       expect(status).to.eq(HTTP_STATUS.UNAUTHORIZED)
       expect(body).to.have.property('error')
-      // Error must not leak internals
       expect(body.error).to.not.match(/sql|query|exception|stack/i)
     })
   })
@@ -389,78 +484,57 @@ describe('POST /auth/login', () => {
 })
 ```
 
-### Rules
-
+**Rules:**
 - Always use `cy.apiRequest()` — never raw `cy.request()` in spec files.
-- Always set `failOnStatusCode: false` in the command (already done in the shared command).
-- Assert status code AND response body — never just one.
-- Don't assert exact error message text if it might change — assert the shape and absence of sensitive data.
+- Assert both status code AND response body.
+- All request payloads use fixture data — no hardcoded values.
 
 ---
 
-## 7. Selectors — Priority Order
+## 9. Selectors — Priority Order
 
 Always use the **first applicable** option:
 
 ```
-1. data-testid        → cy.getByTestId('submit-button')
-2. ARIA role          → cy.getByRole('button', { name: /sign in/i })
-3. ARIA label         → cy.contains('label', 'Email').next('input')
-4. Text content       → cy.contains('Sign in')
-5. CSS (last resort)  → cy.get('.submit-btn')  ← avoid
+1. data-testid   → cy.getByTestId('submit-button')
+2. ARIA role     → cy.getByRole('button', { name: /sign in/i })
+3. ARIA label    → cy.contains('label', 'Email').next('input')
+4. Text content  → cy.contains('Sign in')
+5. CSS           → cy.get('.submit-btn')  ← last resort, avoid
 ```
 
-**If `data-testid` doesn't exist** — add it to the component. Don't fall back to CSS.
+If `data-testid` doesn't exist — add it to the component. Don't fall back to CSS.
 
 **Never use:**
 - `cy.get(':nth-child(3)')` — positional selectors
 - `cy.get('[class*="sc-"]')` — auto-generated class names
-- `cy.xpath(...)` — XPath
 - Long CSS chains: `cy.get('.nav > ul > li:first > a')`
 
 ---
 
-## 8. Waits — Never Arbitrary
+## 10. Waits — Never Arbitrary
 
 ```typescript
-// ✅ Correct — wait for the thing you actually need
+// ✅ Wait for the specific network request
 cy.intercept('POST', '/api/auth/login').as('loginRequest')
 cy.getByTestId('submit-button').click()
 cy.wait('@loginRequest')
 cy.url().should('include', '/dashboard')
 
-// ✅ Correct — assertion retries automatically
-cy.getByRole('alert').should('be.visible').and('contain.text', 'Welcome')
+// ✅ Assertion retries automatically
+cy.get('[role="alert"]').should('be.visible').and('contain.text', 'Welcome')
 
-// ✅ Correct — wait for element state
+// ✅ Wait for element state
 cy.getByTestId('submit-button').should('not.be.disabled')
 
-// ❌ Never — arbitrary wait
+// ❌ Never
 cy.wait(2000)
 cy.wait(500)
 ```
 
-**Golden rule:** If a test is flaky, the fix is always a better wait condition — never `cy.wait(N)`.
-
-### Intercepting Network Requests (the right way)
-
-```typescript
-// Set up intercept BEFORE the action that triggers it
-cy.intercept('POST', '/api/orders').as('createOrder')
-
-// Trigger the action
-checkoutPage.placeOrder()
-
-// Wait for the specific request
-cy.wait('@createOrder').then(({ request, response }) => {
-  expect(response?.statusCode).to.eq(201)
-  expect(request.body).to.have.property('items')
-})
-```
-
 ---
 
-## 9. Configuration
+## 11. Configuration
 
 ```typescript
 // cypress.config.ts
@@ -482,8 +556,8 @@ export default defineConfig({
     viewportWidth: 1280,
     viewportHeight: 720,
     retries: {
-      runMode: 2,    // CI: retry twice before marking as failed
-      openMode: 0,   // Local: no retries — see failures immediately
+      runMode: 2,
+      openMode: 0,
     },
     env: {
       apiUrl: process.env.API_URL ?? 'http://localhost:3000/api',
@@ -494,16 +568,9 @@ export default defineConfig({
 })
 ```
 
-### Rules
-
-- `baseUrl` always from `process.env` with a localhost fallback.
-- `retries` always set — 2 for CI, 0 for local.
-- `video: true` and `screenshotOnRunFailure: true` always on — debugging CI failures without these is painful.
-- All secrets via `env:` block loaded from `process.env` — never hardcoded.
-
 ---
 
-## 10. What Clean Cypress Code Looks Like
+## 12. What Good Code Looks Like
 
 ### Good
 
@@ -511,8 +578,10 @@ export default defineConfig({
 it('user completes checkout with saved card', () => {
   const cart = new CartPage()
   const checkout = new CheckoutPage()
+  const helper = new CheckoutHelper()
 
   cy.login()
+  helper.seedOrder(token, products.basic)
   cart.visit().addItem(products.basic).proceedToCheckout()
   checkout.useSavedCard().placeOrder()
   checkout.expectOrderConfirmation()
@@ -525,33 +594,29 @@ it('user completes checkout with saved card', () => {
 it('test', () => {
   cy.wait(1000)
   cy.visit('http://localhost:3000/login')
-  cy.get('#email').type('testuser@example.com')
-  cy.get('#pass').type('TestPass123!')
+  cy.get('#email').type('testuser@example.com')   // hardcoded credential
+  cy.get('#pass').type('TestPass123!')             // hardcoded credential
   cy.get('button').click()
-  cy.wait(2000)
-  cy.get('.product:first').find('button').click()
-  cy.wait(500)
-  cy.get('[data-v-3e818d24]').click()
-  cy.get('input[name="cc"]').type('4242424242424242')
-  // ... 25 more lines
+  cy.wait(2000)                                    // arbitrary wait
+  cy.get('.product:first').find('button').click()  // positional + CSS selector
 })
 ```
 
-The bad version: hardcoded URL, hardcoded credentials, meaningless test name, raw selectors, arbitrary waits, does 6 things in one test, impossible to maintain.
-
 ---
 
-## 11. Quick Reference Checklist
+## 13. Pre-Commit Checklist
 
 Before committing any Cypress file, verify:
 
-- [ ] No `cy.get()` calls in spec files — all in page objects or commands
-- [ ] No `cy.visit()` with hardcoded URLs — using `ROUTES` constants or baseUrl
-- [ ] No hardcoded credentials — using `Cypress.env()`
+- [ ] No `cy.get()` calls in spec files — all through page objects or commands
+- [ ] No hardcoded URLs — using `ROUTES` constants or `baseUrl`
+- [ ] No hardcoded credentials, emails, or test values — all from `fixtures/*.json`
 - [ ] No `cy.wait(N)` anywhere — using intercepts or assertion retries
-- [ ] `cy.login()` used for auth, not repeated login steps
+- [ ] Every page object method and helper method starts with `cy.step()`
+- [ ] Every custom command starts with `cy.step()`
+- [ ] Custom commands are cross-page — one-off logic stays in the spec or helper
+- [ ] `cy.login()` used for auth — never inline login steps
 - [ ] Test names describe observable behaviour in plain English
-- [ ] Each `it()` tests one thing
-- [ ] Page object methods are named as verb phrases and return `this`
+- [ ] Each `it()` tests one thing and is under 15 lines
 - [ ] New commands are typed in the `declare global` block
-- [ ] `failOnStatusCode: false` set in `cy.apiRequest()` (in the command, not the spec)
+- [ ] `failOnStatusCode: false` set inside `cy.apiRequest()`, not in the spec
