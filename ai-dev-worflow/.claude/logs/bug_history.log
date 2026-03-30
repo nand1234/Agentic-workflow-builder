@@ -1,0 +1,66 @@
+# bug_history.log
+
+> Running log of all bugs and sprint retrospectives.  
+> Append new entries — do not delete old ones.  
+> Use `/plan:bug-fix` to generate new bug entries.  
+> Use `/retrospective` to generate sprint retro entries.
+
+---
+
+## Bug: [EXAMPLE ENTRY — replace with real bugs]
+
+**Date:** 2025-01-01  
+**Severity:** 🟡 Moderate  
+**Reporter:** [name or system]  
+**Status:** Resolved  
+**MR / Branch:** `fix/example-bug`
+
+### Reproduction Steps
+1. Navigate to [feature]
+2. Perform [action]
+3. Observe: [unexpected result]
+
+### Bug Description
+[Detailed summary of the issue and its user impact.]
+
+### Root Cause Analysis
+**Expected behaviour:** [what should happen]  
+**Actual behaviour:** [what was happening]  
+**Root cause:** `src/services/example.ts:42` — null check missing before accessing `.id` property  
+**Logic drift:** The function assumed the user object was always populated, but unauthenticated requests could reach this path via a misconfigured middleware.
+
+### Triple-Test Contract
+| Scenario | Layer | Reasoning |
+|---|---|---|
+| ✅ Positive | Unit | Verifies authenticated requests return correct result |
+| ❌ Negative | Unit | Verifies unauthenticated request throws expected error, not crashes |
+| ⚠️ Edge | API | Verifies expired token is handled the same as no token |
+
+### Resolution
+Fixed null check in `src/services/example.ts`. All three tests implemented and passing.
+
+---
+
+## Sprint Retro: [EXAMPLE ENTRY — replace with real retros]
+
+**Date:** 2025-01-14  
+**Sprint:** Sprint 1  
+**Reviewed by:** [name]
+
+### Stats
+- Features planned: 3
+- Bugs filed: 2
+- Bugs resolved: 2
+- MRs merged: 5
+
+### Recurring Patterns Found
+- Null checks missing in service layer (appeared in 2 bugs this sprint)
+- E2E tests consistently skipped — only Unit and API tests written
+
+### Action Items
+- [ ] Add a lint rule or team agreement: service functions must guard against null user objects
+- [ ] Clarify in Triple-Test Matrix when E2E is mandatory vs optional
+- [ ] Regenerate `SEARCH_PROTOCOL.md` — new middleware pattern introduced this sprint
+
+### SEARCH_PROTOCOL Status
+[x] Needs regeneration — reason: new auth middleware pattern introduced
