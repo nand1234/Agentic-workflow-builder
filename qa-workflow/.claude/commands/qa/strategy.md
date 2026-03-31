@@ -13,7 +13,7 @@ Feature name? (becomes the filename — e.g. "user-authentication", "checkout-fl
 
 ### STEP 1 — Prerequisites
 
-Read `.claude/SKILL.md`. If missing → `❌ Run /qa:discover first.`
+Read `.claude/skills`. If missing → `❌ Run /qa:discover first.`
 
 If `.claude/strategy/[feature]-strategy.md` exists, ask:
 ```
