@@ -17,689 +17,522 @@ Every file generated or modified must comply with these standards. No exceptions
 
 ## 1. Core Principles
 
-### SOLID Applied to Playwright
+### SOLID Applied to Tests
 
 | Principle | What it means in Playwright |
 |---|---|
-| **Single Responsibility** | One page class per page. One spec file per feature. One `test()` block tests one observable behaviour. |
-| **Open/Closed** | Page classes are open for extension, closed for modification. Add new behaviour by extending `BasePage` — never editing shared page methods to handle a special case. |
-| **Liskov Substitution** | Any page subclass must work wherever `BasePage` is expected. Don't override methods with incompatible signatures. |
-| **Interface Segregation** | Don't add methods to a page class that only one test needs. One-off helpers belong in a helper class, not in a shared page. |
-| **Dependency Inversion** | Tests depend on page objects and fixtures, not on raw `page.locator()` chains. Spec files never call `page.getByTestId()` directly. |
+| **Single Responsibility** | One page object per page/component. One spec file per feature. One `test()` block tests one behaviour — not three. |
+| **Open/Closed** | `BasePage` is open for extension, closed for modification. Add a new page by extending `BasePage`, never by editing it. |
+| **Liskov Substitution** | Any page object extending `BasePage` must be usable wherever `BasePage` is expected. Don't override base methods with incompatible behaviour. |
+| **Interface Segregation** | Don't add methods to a page object that only one test needs. If a helper is only used once, it lives in the test file, not the shared page object. |
+| **Dependency Inversion** | Tests depend on page object abstractions, not on raw Playwright `page` calls. The spec file never calls `page.locator()` directly. |
 
 ### DRY — Never Repeat These
 
-- **Locators** → Page Object class only. Never inline `page.locator('#submit')` in a spec.
-- **Auth** → `storageState` via setup project. Never repeat login steps in tests.
-- **URLs** → `ROUTES` constants + `baseURL` in config. Never write `http://localhost:3000` in a spec.
-- **Credentials** → `process.env` loaded from `.env.test`. Never hardcode in source.
-- **Test data** → JSON fixture files only. Never hardcode names, emails, or values in specs.
-- **Page instantiation** → Playwright fixtures (via `base.ts`). Never `new LoginPage(page)` inside a spec.
-- **API calls** → `request` fixture or a dedicated `ApiHelper` class.
+- Selectors → Page Object only. **Never** inline `page.locator('#submit-btn')` in a spec file.
+- Login → `auth.fixture.ts` only. **Never** repeat login steps in `beforeEach`.
+- URLs → `env.ts` `baseUrl` only. **Never** write `http://localhost:3000` in a spec.
+- Credentials → `.env.test` only. **Never** hardcode emails/passwords in source.
+- Repeated assertions → custom `expect` helper or page object method.
+- API calls in tests → `ApiHelper` class only.
 
 ### Clean Code Rules
 
-- **Method names describe behaviour**: `fillEmail()`, `submitForm()`, `expectErrorMessage()`.
-- **No comments explaining *what* the code does** — it must be self-explanatory. Comments only explain *why* a non-obvious thing is done.
-- **Max 15 lines per `test()` block** — if longer, extract actions to page methods or helpers.
-- **No `page.waitForTimeout(N)` anywhere** — use auto-waiting locators or `waitFor` conditions.
-- **No raw locators in spec files** — always go through a page object method.
+- **Names describe behaviour**, not implementation: `expectLoginErrorVisible()` not `checkDiv()`.
+- **No comments explaining *what* the code does** — the code should be self-explanatory. Comments only explain *why* something non-obvious is done.
+- **Max 5 lines per test action block** — if a test step is longer, extract it to the page object.
+- **Max 10 `expect()` calls per test** — if you need more, you're testing too many things at once.
 - **No nested `test.describe` deeper than 2 levels.**
+- **No `any` type** — always type page object methods and fixture return values.
 
 ---
 
 ## 2. File & Folder Conventions
 
 ```
-playwright/
-├── tests/                        ← One folder per feature
+tests/
+├── e2e/                    ← One folder per feature
 │   └── [feature]/
-│       └── [feature].spec.ts
-├── api/                          ← API tests (request fixture, no UI)
+│       └── [feature].spec.ts       ← Only imports: fixtures, page objects, constants
+├── api/                    ← API tests, no browser context
 │   └── [resource]/
 │       └── [resource].spec.ts
-├── pages/                        ← Page Object classes
-│   ├── BasePage.ts
-│   └── [Feature]Page.ts
-├── fixtures/                     ← Custom Playwright fixtures (page injection)
-│   └── base.ts                   ← Single fixture file — extends test with all pages
-├── helpers/                      ← Helper classes with business logic
-│   └── [Feature]Helper.ts
-├── data/                         ← ALL test data as JSON
-│   └── [feature].json
-├── constants/                    ← ROUTES, HTTP_STATUS, ERROR_MESSAGES
-│   └── index.ts
-├── auth.setup.ts                 ← Login once, save storageState
-├── playwright/.auth/             ← Saved auth state (gitignored)
-│   └── user.json
-└── playwright.config.ts
+├── pages/                  ← Page Objects
+│   ├── BasePage.ts         ← Abstract base — extend, never modify
+│   └── [Feature]Page.ts   ← One file per page or major component
+├── fixtures/
+│   ├── index.ts            ← Single export point
+│   └── auth.fixture.ts     ← Pre-authenticated contexts
+├── helpers/
+│   ├── api.helper.ts       ← All HTTP interactions
+│   └── data.helper.ts      ← Test data generators
+├── data/
+│   └── [feature].json      ← Static test data (or .ts for typed data)
+├── constants/
+│   └── index.ts            ← ROUTES, HTTP_STATUS, ERROR_MESSAGES
+└── config/
+    └── env.ts              ← All process.env access — nowhere else
 ```
 
 **Naming rules:**
 - Spec files: `[feature].spec.ts` — lowercase, hyphenated
-- Page classes: `[Feature]Page.ts` — PascalCase
-- Helper classes: `[Feature]Helper.ts` — PascalCase
-- Data files: `[feature].json` — lowercase, hyphenated
-- Fixture keys: camelCase noun phrases (`loginPage`, `checkoutPage`)
+- Page objects: `[Feature]Page.ts` — PascalCase
+- Fixtures: `[name].fixture.ts`
+- Helpers: `[name].helper.ts`
+- Test data: `[feature].json` or `[feature].data.ts`
 
 ---
 
-## 3. Test Data — Centralised in JSON
+## 3. Page Object Model
 
-**All test data lives in `playwright/data/`**. No hardcoded strings, emails, names, or values anywhere in specs, page objects, or helpers.
-
-```json
-// playwright/data/users.json
-{
-  "valid": {
-    "email": "testuser@example.com",
-    "password": "SecurePass123!",
-    "name": "Test User"
-  },
-  "admin": {
-    "email": "admin@example.com",
-    "password": "AdminPass123!",
-    "name": "Admin User"
-  },
-  "invalid": {
-    "email": "wrong@example.com",
-    "password": "badpass"
-  }
-}
-```
-
-```json
-// playwright/data/products.json
-{
-  "basic": {
-    "name": "Basic Widget",
-    "sku": "WGT-001",
-    "price": 9.99
-  },
-  "premium": {
-    "name": "Premium Widget",
-    "sku": "WGT-PRO",
-    "price": 49.99
-  }
-}
-```
-
-**Loading data in specs and helpers:**
+### The Pattern
 
 ```typescript
-// Import at the top of the file — never inline
-import users from '../../data/users.json'
-import products from '../../data/products.json'
-
-test('logs in with valid credentials', async ({ loginPage }) => {
-  await loginPage.loginWith(users.valid.email, users.valid.password)
-})
-```
-
-**Rules:**
-- One data file per domain (`users.json`, `products.json`, `orders.json`).
-- Never duplicate data across data files — one source of truth.
-- Data values must not be mutated in tests.
-- If a test needs unique data per run (e.g. unique email), generate it in a helper — never construct it inline in the spec.
-
----
-
-## 4. Helper Classes
-
-Helper classes contain **business logic, data generation, and API seed operations** that don't belong in page objects. Every public method must open with `await test.step()`.
-
-```typescript
-// playwright/helpers/CheckoutHelper.ts
-
-import { APIRequestContext } from '@playwright/test'
-import { test } from '../fixtures/base'
-import products from '../data/products.json'
-
-export class CheckoutHelper {
-  constructor(private readonly request: APIRequestContext) {}
-
-  /**
-   * Generates a unique guest email to avoid conflicts across parallel test runs.
-   */
-  async generateGuestEmail(): Promise<string> {
-    return test.step('Generate unique guest email for test run', async () => {
-      const timestamp = Date.now()
-      return `guest+${timestamp}@example.com`
-    })
-  }
-
-  /**
-   * Seeds an order directly via API so the UI test starts at the right state.
-   */
-  async seedOrder(
-    token: string,
-    product: { sku: string; price: number },
-    quantity = 1
-  ): Promise<void> {
-    await test.step('Seed order via API to set up UI test precondition', async () => {
-      const payload = {
-        items: [{ sku: product.sku, quantity, unitPrice: product.price }],
-        total: product.price * quantity,
-      }
-      const response = await this.request.post('/api/orders', {
-        data: payload,
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!response.ok()) throw new Error(`Seed order failed: ${response.status()}`)
-    })
-  }
-}
-```
-
-**Rules:**
-- Every public method wraps its body in `test.step('...', async () => { ... })`.
-- Helper classes contain **no locators** and make **no UI assertions** — that belongs in page objects.
-- Helpers may call the `request` fixture to seed or clean up data.
-- One helper class per domain (`CheckoutHelper`, `UserHelper`, `ProductHelper`).
-- Inject via the `fixtures/base.ts` fixture or instantiate in `test.beforeEach` — never inside a `test()` block.
-
----
-
-## 5. Playwright Fixtures — Page Injection
-
-Playwright fixtures are the **only** way page objects enter a spec file. Never instantiate page classes manually inside a test.
-
-```typescript
-// playwright/fixtures/base.ts
-
-import { test as baseTest, expect } from '@playwright/test'
-import { LoginPage } from '../pages/LoginPage'
-import { DashboardPage } from '../pages/DashboardPage'
-import { CheckoutPage } from '../pages/CheckoutPage'
-import { CartPage } from '../pages/CartPage'
-import { CheckoutHelper } from '../helpers/CheckoutHelper'
-
-// Declare the shape of all custom fixtures
-type CustomFixtures = {
-  loginPage: LoginPage
-  dashboardPage: DashboardPage
-  checkoutPage: CheckoutPage
-  cartPage: CartPage
-  checkoutHelper: CheckoutHelper
-}
-
-export const test = baseTest.extend<CustomFixtures>({
-  loginPage: async ({ page }, use) => {
-    await use(new LoginPage(page))
-  },
-  dashboardPage: async ({ page }, use) => {
-    await use(new DashboardPage(page))
-  },
-  checkoutPage: async ({ page }, use) => {
-    await use(new CheckoutPage(page))
-  },
-  cartPage: async ({ page }, use) => {
-    await use(new CartPage(page))
-  },
-  checkoutHelper: async ({ request }, use) => {
-    await use(new CheckoutHelper(request))
-  },
-})
-
-// Always re-export expect so specs import from one place
-export { expect }
-```
-
-**Specs import `test` and `expect` from `fixtures/base.ts`, never from `@playwright/test` directly.**
-
-```typescript
-// ✅ Correct
-import { test, expect } from '../../fixtures/base'
-
-// ❌ Wrong — bypasses custom fixtures
-import { test, expect } from '@playwright/test'
-```
-
-**Rules:**
-- Every page class has exactly one fixture entry in `base.ts`.
-- Fixtures use the `page` built-in — never create a new browser context inside a fixture unless specifically testing multi-context behaviour.
-- Fixtures are composable — a helper fixture can depend on `request`; a page fixture depends on `page`.
-- Always `await use(...)` — never return the value directly.
-
----
-
-## 6. Authentication — storageState Setup Project
-
-Authentication runs **once** in a setup project and saves browser state to disk. Tests reuse that state — they never perform login steps.
-
-```typescript
-// playwright/auth.setup.ts
-
-import { test as setup, expect } from '@playwright/test'
-import { ROUTES } from './constants'
-import users from './data/users.json'
-
-const authFile = 'playwright/.auth/user.json'
-
-setup('authenticate', async ({ page }) => {
-  await page.goto(ROUTES.LOGIN)
-  await page.getByTestId('email-input').fill(users.valid.email)
-  await page.getByTestId('password-input').fill(users.valid.password)
-  await page.getByRole('button', { name: /sign in/i }).click()
-  await expect(page).toHaveURL(/dashboard/)
-
-  // Save signed-in state — all tests reuse this
-  await page.context().storageState({ path: authFile })
-})
-```
-
-```typescript
-// playwright.config.ts (relevant excerpt)
-
-projects: [
-  {
-    name: 'setup',
-    testMatch: '**/auth.setup.ts',
-  },
-  {
-    name: 'chromium',
-    use: {
-      ...devices['Desktop Chrome'],
-      storageState: 'playwright/.auth/user.json',
-    },
-    dependencies: ['setup'],
-  },
-],
-```
-
-**Rules:**
-- `playwright/.auth/` must be in `.gitignore` — auth state files contain sensitive cookies.
-- Never perform login steps inside a `test()` block or `beforeEach`. Use `storageState`.
-- For tests that need a **different user role**, create a separate setup file and a separate project entry (e.g. `admin.setup.ts` → `playwright/.auth/admin.json`).
-- For tests that must test the login page itself, use `test.use({ storageState: { cookies: [], origins: [] } })` to start unauthenticated.
-
----
-
-## 7. Page Object Classes
-
-Page objects encapsulate **locators and UI interactions** for a single page. Every public method wraps its body in `test.step()`.
-
-```typescript
-// playwright/pages/LoginPage.ts
+// tests/pages/LoginPage.ts
 
 import { Page, Locator, expect } from '@playwright/test'
-import { test } from '../fixtures/base'
 import { BasePage } from './BasePage'
 import { ROUTES, ERROR_MESSAGES } from '../constants'
 
 export class LoginPage extends BasePage {
-  // Locators are private readonly — never exposed outside the class
+  // ─── Locators ─────────────────────────────────────────────
+  // Grouped at the top. One property per element. Prefer:
+  //   1. data-testid
+  //   2. role + name
+  //   3. label
+  //   4. text (last resort)
   private readonly emailInput: Locator
   private readonly passwordInput: Locator
   private readonly submitButton: Locator
-  private readonly errorAlert: Locator
+  private readonly errorMessage: Locator
+  private readonly forgotPasswordLink: Locator
 
   constructor(page: Page) {
     super(page)
-    this.emailInput = page.getByTestId('email-input')
-    this.passwordInput = page.getByTestId('password-input')
-    this.submitButton = page.getByRole('button', { name: /sign in/i })
-    this.errorAlert = page.getByRole('alert')
+    this.emailInput       = page.getByTestId('email-input')
+    this.passwordInput    = page.getByTestId('password-input')
+    this.submitButton     = page.getByRole('button', { name: /sign in/i })
+    this.errorMessage     = page.getByRole('alert')
+    this.forgotPasswordLink = page.getByRole('link', { name: /forgot password/i })
   }
 
-  // ─── Navigation ──────────────────────────────────────────────────
-
-  async goto(): Promise<void> {
-    await test.step('Navigate to login page', async () => {
-      await this.page.goto(ROUTES.LOGIN)
-    })
+  // ─── Navigation ───────────────────────────────────────────
+  async goto() {
+    await this.navigate(ROUTES.LOGIN)
   }
 
-  // ─── Actions ─────────────────────────────────────────────────────
-
-  async fillEmail(email: string): Promise<void> {
-    await test.step(`Enter email: ${email}`, async () => {
-      await this.emailInput.fill(email)
-    })
+  // ─── Actions ──────────────────────────────────────────────
+  // Actions are verb phrases. They do one thing.
+  async fillCredentials(email: string, password: string) {
+    await this.emailInput.fill(email)
+    await this.passwordInput.fill(password)
   }
 
-  async fillPassword(password: string): Promise<void> {
-    await test.step('Enter password', async () => {
-      await this.passwordInput.fill(password)
-    })
+  async submit() {
+    await this.submitButton.click()
   }
 
-  async submitForm(): Promise<void> {
-    await test.step('Click sign in button', async () => {
-      await this.submitButton.click()
-    })
+  // Compound action — acceptable when always done together
+  async loginWith(email: string, password: string) {
+    await this.fillCredentials(email, password)
+    await this.submit()
   }
 
-  // Compound action — steps always performed together
-  async loginWith(email: string, password: string): Promise<void> {
-    await test.step(`Login as ${email}`, async () => {
-      await this.fillEmail(email)
-      await this.fillPassword(password)
-      await this.submitForm()
-    })
+  // ─── Assertions ───────────────────────────────────────────
+  // Assertion methods start with "expect". They are self-contained.
+  async expectErrorMessage(text: string) {
+    await expect(this.errorMessage).toBeVisible()
+    await expect(this.errorMessage).toContainText(text)
   }
 
-  // ─── Assertions ──────────────────────────────────────────────────
-
-  async expectErrorMessage(text: string): Promise<void> {
-    await test.step(`Expect error message: "${text}"`, async () => {
-      await expect(this.errorAlert).toBeVisible()
-      await expect(this.errorAlert).toContainText(text)
-    })
+  async expectEmailValidationError() {
+    await this.expectErrorMessage(ERROR_MESSAGES.INVALID_EMAIL)
   }
 
-  async expectInvalidCredentialsError(): Promise<void> {
-    await this.expectErrorMessage(ERROR_MESSAGES.INVALID_CREDENTIALS)
-  }
-
-  async expectToBeVisible(): Promise<void> {
-    await test.step('Expect login page to be visible', async () => {
-      await expect(this.page).toHaveURL(new RegExp(ROUTES.LOGIN))
-      await expect(this.emailInput).toBeVisible()
-    })
+  async expectToBeOnLoginPage() {
+    await this.expectUrl(ROUTES.LOGIN)
   }
 }
 ```
+
+### Rules
+
+- **Locators are `private`** — spec files never access them directly.
+- **Actions are `async`** and always `await` every Playwright call.
+- **No `expect()` inside action methods** — actions do, assertions verify.
+- **No test logic in page objects** — they don't know about test scenarios.
+- **One page object per page or major component** — not one per test file.
+- **Compound actions are acceptable** if the steps are always sequential (e.g. `loginWith` = fill + submit).
+
+### What NOT to do
 
 ```typescript
-// playwright/pages/BasePage.ts
+// ❌ Selector inline in spec file
+await page.locator('#email').fill('user@test.com')
 
-import { Page } from '@playwright/test'
+// ❌ Raw locator string repeated in two places
+const btn = page.locator('button[type="submit"]') // in spec
+// ... same string in page object
 
-export abstract class BasePage {
-  constructor(protected readonly page: Page) {}
+// ❌ Test logic in page object
+async loginAndAssertDashboard() {  // page objects don't assert business outcomes
+  await this.loginWith(email, pass)
+  await expect(this.page).toHaveURL('/dashboard') // belongs in the test
 }
-```
 
-**Rules:**
-- Every public method wraps its body in `test.step('...', async () => { ... })`.
-- Locators are `private readonly` properties defined in the constructor — never inline in methods.
-- All locators use Playwright's built-in locators (`getByRole`, `getByTestId`, `getByLabel`) — never raw CSS.
-- Assertion methods are prefixed with `expect`.
-- Action methods are verb phrases (`fillEmail`, `submitForm`, `clickForgotPassword`).
-- Page classes have **no knowledge of other pages**.
-- One class per page or major UI component.
+// ❌ Giant page object with 40 methods — split it
+```
 
 ---
 
-## 8. Spec File Structure
+## 4. Spec File Structure
 
 ```typescript
-// playwright/tests/auth/login.spec.ts
+// tests/e2e/auth/login.spec.ts
 
-// Always import from fixtures/base — never from @playwright/test
-import { test, expect } from '../../fixtures/base'
-import { ROUTES } from '../../constants'
-import users from '../../data/users.json'
+import { test, expect } from '../../fixtures'          // always from fixtures, not @playwright/test
+import { LoginPage } from '../../pages/LoginPage'
+import { DashboardPage } from '../../pages/DashboardPage'
+import testData from '../../data/auth.json'
+import { ROUTES, ERROR_MESSAGES } from '../../constants'
 
+// ─── Describe block = one feature or scenario group ───────
 test.describe('Login', () => {
+  let loginPage: LoginPage
 
-  test.beforeEach(async ({ loginPage }) => {
+  // ─── Setup ────────────────────────────────────────────────
+  test.beforeEach(async ({ page }) => {
+    loginPage = new LoginPage(page)
     await loginPage.goto()
   })
 
-  test('redirects to dashboard with valid credentials', async ({ loginPage, dashboardPage }) => {
-    await loginPage.loginWith(users.valid.email, users.valid.password)
-    await dashboardPage.expectToBeVisible()
-    await dashboardPage.expectWelcomeMessage(users.valid.name)
+  // ─── Tests ────────────────────────────────────────────────
+  // Test name = plain English describing the behaviour
+  // Format: "[subject] [verb] [outcome]"
+  test('valid credentials redirect to dashboard', async ({ page }) => {
+    const dashboard = new DashboardPage(page)
+
+    await loginPage.loginWith(testData.validUser.email, testData.validUser.password)
+
+    await dashboard.expectToBeOnDashboard()
+    await dashboard.expectWelcomeMessage(testData.validUser.name)
   })
 
-  test('shows error message with wrong password', async ({ loginPage }) => {
-    await loginPage.loginWith(users.valid.email, users.invalid.password)
-    await loginPage.expectInvalidCredentialsError()
-    await loginPage.expectToBeVisible()
+  test('invalid password shows error message', async () => {
+    await loginPage.loginWith(testData.validUser.email, 'wrongpassword')
+
+    await loginPage.expectErrorMessage(ERROR_MESSAGES.INVALID_CREDENTIALS)
+    await loginPage.expectToBeOnLoginPage()
   })
 
-  test('shows validation error when email is empty', async ({ loginPage }) => {
-    await loginPage.fillPassword(users.valid.password)
-    await loginPage.submitForm()
-    await loginPage.expectErrorMessage('Email is required')
+  test('empty email shows validation error', async () => {
+    await loginPage.submit()  // submit without filling
+
+    await loginPage.expectEmailValidationError()
   })
 })
 
-// Tests that must start unauthenticated override storageState
-test.describe('Login — already authenticated', () => {
-  test.use({ storageState: 'playwright/.auth/user.json' })
+// ─── Separate describe for authenticated scenarios ─────────
+test.describe('Login — authenticated user', () => {
+  test('already logged in user is redirected to dashboard', async ({ authenticatedPage }) => {
+    const dashboard = new DashboardPage(authenticatedPage)
 
-  test('redirects logged-in user away from login page', async ({ page }) => {
-    await page.goto(ROUTES.LOGIN)
-    await expect(page).toHaveURL(new RegExp(ROUTES.DASHBOARD))
+    await authenticatedPage.goto(ROUTES.LOGIN)
+
+    await dashboard.expectToBeOnDashboard()  // should redirect, not show login
   })
 })
 ```
 
-**Rules:**
-- Import `test` and `expect` from `../../fixtures/base` only.
-- Import all test data from `../../data/*.json` — no hardcoded values.
-- `beforeEach` contains setup only — never assertions.
-- `test()` names are plain English describing observable behaviour.
-- Each `test()` tests exactly one thing and is fully independent.
-- No raw locator calls in spec files — all selectors go through page objects.
-- No `if` statements or business logic in spec files.
-- Max 15 lines per `test()` block.
+### Rules
+
+- Import `test` and `expect` from `../../fixtures` — **not** from `@playwright/test`.
+- One `test.describe` per scenario group — don't mix authenticated and unauthenticated in one block.
+- Test names are plain English sentences describing observable behaviour.
+- `beforeEach` only contains setup — never assertions.
+- `afterEach` only for cleanup — never for assertions.
+- No business logic in spec files. If you're writing an `if` statement in a test, something is wrong.
+- Each `test()` is independent — never depends on state from a previous test.
 
 ---
 
-## 9. API Tests
+## 5. Fixtures
 
 ```typescript
-// playwright/api/auth/login.spec.ts
+// tests/fixtures/auth.fixture.ts
+// Purpose: eliminate repeated login setup across tests
 
-import { test, expect } from '@playwright/test'
+import { test as base, Page, BrowserContext } from '@playwright/test'
+import { env } from '../config/env'
+import { LoginPage } from '../pages/LoginPage'
+
+type AuthFixtures = {
+  authenticatedPage: Page       // standard user, pre-logged-in
+  adminPage: Page               // admin user, pre-logged-in
+  authContext: BrowserContext   // raw context if you need a fresh page
+}
+
+export const test = base.extend<AuthFixtures>({
+  authenticatedPage: async ({ browser }, use) => {
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    const loginPage = new LoginPage(page)     // use page object, not raw calls
+
+    await loginPage.goto()
+    await loginPage.loginWith(env.testUserEmail, env.testUserPassword)
+    await page.waitForURL('**/dashboard')
+
+    await use(page)
+    await context.close()
+  },
+
+  adminPage: async ({ browser }, use) => {
+    // Same pattern for admin
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    const loginPage = new LoginPage(page)
+
+    await loginPage.goto()
+    await loginPage.loginWith(env.adminUserEmail!, env.adminUserPassword!)
+    await page.waitForURL('**/admin')
+
+    await use(page)
+    await context.close()
+  },
+
+  authContext: async ({ browser }, use) => {
+    const context = await browser.newContext()
+    await use(context)
+    await context.close()
+  },
+})
+
+export { expect } from '@playwright/test'
+```
+
+### Rules
+
+- Fixtures handle **cross-cutting concerns** — auth state, test data seeding, cleanup.
+- Never put test assertions in a fixture.
+- Always close contexts in the cleanup phase (after `use()`).
+- Use `storageState` for session persistence if login is slow — save once, reuse.
+
+---
+
+## 6. API Tests
+
+```typescript
+// tests/api/auth/login.spec.ts
+// API tests: no browser, test HTTP contract directly
+
+import { test, expect } from '@playwright/test'   // no auth fixture needed for most API tests
+import { ApiHelper } from '../../helpers/api.helper'
+import testData from '../../data/auth.json'
 import { HTTP_STATUS } from '../../constants'
-import users from '../../data/users.json'
 
-test.describe('POST /auth/login', () => {
+test.describe('POST /api/auth/login', () => {
+  let api: ApiHelper
 
-  test('returns 200 and token for valid credentials', async ({ request }) => {
-    const response = await request.post('/api/auth/login', {
-      data: { email: users.valid.email, password: users.valid.password },
-    })
-    const body = await response.json()
+  test.beforeEach(({ request }) => {
+    api = new ApiHelper(request)
+  })
 
-    expect(response.status()).toBe(HTTP_STATUS.OK)
-    expect(body).toHaveProperty('token')
+  test('returns 200 and token for valid credentials', async () => {
+    const { status, body } = await api.post<{ token: string }>(
+      '/auth/login',
+      { email: testData.validUser.email, password: testData.validUser.password }
+    )
+
+    expect(status).toBe(HTTP_STATUS.OK)
+    expect(body.token).toBeDefined()
     expect(typeof body.token).toBe('string')
   })
 
-  test('returns 401 for invalid password', async ({ request }) => {
-    const response = await request.post('/api/auth/login', {
-      data: { email: users.valid.email, password: users.invalid.password },
-    })
-    const body = await response.json()
+  test('returns 401 for invalid password', async () => {
+    const { status, body } = await api.post<{ error: string }>(
+      '/auth/login',
+      { email: testData.validUser.email, password: 'wrong' }
+    )
 
-    expect(response.status()).toBe(HTTP_STATUS.UNAUTHORIZED)
-    expect(body).toHaveProperty('error')
+    expect(status).toBe(HTTP_STATUS.UNAUTHORIZED)
+    expect(body.error).toBeDefined()
+    // Assert error message doesn't leak internals
     expect(body.error).not.toMatch(/sql|query|exception|stack/i)
   })
 
-  test('returns 400 when email field is missing', async ({ request }) => {
-    const response = await request.post('/api/auth/login', {
-      data: { password: 'test' },
-    })
-    expect(response.status()).toBe(HTTP_STATUS.BAD_REQUEST)
+  test('returns 400 for missing email field', async () => {
+    const { status } = await api.post('/auth/login', { password: 'test' })
+
+    expect(status).toBe(HTTP_STATUS.BAD_REQUEST)
   })
 })
 ```
 
-**Rules:**
-- Use the built-in `request` fixture — no custom HTTP clients.
-- Always assert both status code AND response body.
-- All request payloads use data from `data/*.json` — no hardcoded values.
-- API spec files may import directly from `@playwright/test` — they don't use page fixtures.
+### Rules
+
+- API tests use `request` fixture directly — no browser launched.
+- Always assert **both** status code AND response body shape.
+- Assert that error responses don't leak stack traces or SQL.
+- Test one contract per `test()` — status, then body, not mixed.
 
 ---
 
-## 10. Locators — Priority Order
+## 7. Test Data
 
-Always use the **first applicable** option (matches official Playwright priority):
+**JSON format (default):**
+
+```json
+// tests/data/auth.json
+{
+  "validUser": {
+    "email": "testuser@example.com",
+    "password": "TestPass123!",
+    "name": "Test User"
+  },
+  "lockedUser": {
+    "email": "locked@example.com",
+    "password": "TestPass123!"
+  },
+  "invalidUser": {
+    "email": "notexist@example.com",
+    "password": "WrongPass123!"
+  }
+}
+```
+
+**TypeScript format (when type safety matters):**
+
+```typescript
+// tests/data/auth.data.ts
+export interface User {
+  email: string
+  password: string
+  name?: string
+}
+
+export const authData = {
+  validUser: {
+    email: 'testuser@example.com',
+    password: 'TestPass123!',
+    name: 'Test User',
+  } satisfies User,
+
+  lockedUser: {
+    email: 'locked@example.com',
+    password: 'TestPass123!',
+  } satisfies User,
+} as const
+```
+
+### Rules
+
+- Test data files are **static** — no generated UUIDs at the top level.
+- Use `data.helper.ts` for dynamic data generation (random emails, etc).
+- Credentials in data files reference **test accounts that must exist in the test DB**.
+- Never use production data in test fixtures — even anonymised.
+
+---
+
+## 8. Selectors — Priority Order
+
+Always use the **first applicable** option. Never skip down to a lower option if a better one exists.
 
 ```
-1. getByRole()       → page.getByRole('button', { name: /sign in/i })
-2. getByTestId()     → page.getByTestId('submit-button')
-3. getByLabel()      → page.getByLabel('Email address')
-4. getByPlaceholder()→ page.getByPlaceholder('Enter your email')
-5. getByText()       → page.getByText('Sign in')
-6. CSS (last resort) → page.locator('.submit-btn')  ← avoid
+1. data-testid        → page.getByTestId('submit-button')
+2. ARIA role + name   → page.getByRole('button', { name: /sign in/i })
+3. ARIA label         → page.getByLabel('Email address')
+4. Placeholder        → page.getByPlaceholder('Enter your email')
+5. Text content       → page.getByText('Sign in')
+6. CSS (last resort)  → page.locator('.submit-btn')  ← avoid
 ```
 
-If `data-testid` doesn't exist — add it to the component. Don't fall back to CSS.
+**If `data-testid` doesn't exist** — add it to the component. Don't fall back to CSS.
 
 **Never use:**
-- `page.locator(':nth-child(3)')` — positional selectors
-- `page.locator('[class*="sc-"]')` — auto-generated class names
-- `page.locator('xpath=...')` — XPath
-- Long CSS chains: `page.locator('.nav > ul > li:first > a')`
-
-**Chaining and filtering (correct pattern):**
-
-```typescript
-// Filter a locator to a specific item before interacting
-const product = this.page.getByRole('listitem').filter({ hasText: 'Basic Widget' })
-await product.getByRole('button', { name: 'Add to cart' }).click()
-```
+- `nth-child` selectors
+- XPath
+- Class names that look auto-generated (`.sc-bdXxxt`, `.css-1ab2cd`)
+- IDs that look auto-generated
 
 ---
 
-## 11. Waits — Never Arbitrary
-
-Playwright auto-waits on every locator action. Never add manual timeouts.
+## 9. Waits — Explicit Only
 
 ```typescript
-// ✅ Correct — locator auto-waits for element to be visible and enabled
-await this.submitButton.click()
-
-// ✅ Correct — wait for a specific network response
-const responsePromise = page.waitForResponse('**/api/auth/login')
-await loginPage.submitForm()
-const response = await responsePromise
-expect(response.status()).toBe(200)
-
-// ✅ Correct — wait for navigation
-await Promise.all([
-  page.waitForURL('**/dashboard'),
-  loginPage.submitForm(),
-])
-
-// ✅ Correct — assertion retries automatically until timeout
+// ✅ Correct — explicit condition
 await expect(page.getByRole('alert')).toBeVisible()
+await page.waitForURL('**/dashboard')
+await page.waitForResponse('**/api/auth/login')
+await expect(submitButton).toBeEnabled()
 
-// ❌ Never — arbitrary wait
+// ❌ Never — arbitrary timeout
 await page.waitForTimeout(2000)
-await page.waitForTimeout(500)
+await new Promise(resolve => setTimeout(resolve, 1000))
 ```
+
+**If a test is flaky** — fix the wait condition, never add a sleep.
 
 ---
 
-## 12. Configuration
-
-```typescript
-// playwright.config.ts
-
-import { defineConfig, devices } from '@playwright/test'
-
-export default defineConfig({
-  testDir: './playwright/tests',
-  fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 4 : undefined,
-  reporter: [['html', { outputFolder: '.qa/results/html' }], ['list']],
-
-  use: {
-    baseURL: process.env.BASE_URL ?? 'http://localhost:3000',
-    trace: 'on-first-retry',       // captures trace on first retry — essential for CI debugging
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
-  },
-
-  projects: [
-    // Auth setup runs first — saves storageState to playwright/.auth/user.json
-    {
-      name: 'setup',
-      testMatch: '**/auth.setup.ts',
-    },
-    {
-      name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
-      },
-      dependencies: ['setup'],
-    },
-    // API tests — no browser, no storageState needed
-    {
-      name: 'api',
-      testDir: './playwright/api',
-      use: { baseURL: process.env.API_URL ?? 'http://localhost:3000' },
-    },
-  ],
-})
-```
-
-**Rules:**
-- `baseURL` always from `process.env` with a localhost fallback.
-- `retries` always set — `2` for CI (`process.env.CI`), `0` for local.
-- `trace: 'on-first-retry'` always on — without traces, debugging CI failures is painful.
-- `screenshot` and `video` set to `'only-on-failure'` / `'retain-on-failure'`.
-- All secrets via `process.env` — never hardcoded.
-- `forbidOnly: !!process.env.CI` prevents `test.only` from accidentally blocking CI.
-
----
-
-## 13. What Good Code Looks Like
+## 10. What Clean Test Code Looks Like
 
 ### Good
 
 ```typescript
-test('user completes checkout with saved card', async ({
-  cartPage,
-  checkoutPage,
-  checkoutHelper,
-}) => {
-  await checkoutHelper.seedOrder(token, products.basic)
-  await cartPage.goto()
-  await cartPage.addItem(products.basic)
-  await cartPage.proceedToCheckout()
-  await checkoutPage.useSavedCard()
-  await checkoutPage.placeOrder()
-  await checkoutPage.expectOrderConfirmation()
+test('checkout completes successfully with valid card', async ({ authenticatedPage }) => {
+  const cart = new CartPage(authenticatedPage)
+  const checkout = new CheckoutPage(authenticatedPage)
+
+  await cart.goto()
+  await cart.addItem(testData.products.basic)
+  await cart.proceedToCheckout()
+
+  await checkout.fillCard(testData.cards.valid)
+  await checkout.placeOrder()
+
+  await checkout.expectOrderConfirmation()
+  await checkout.expectConfirmationEmailSent(testData.validUser.email)
 })
 ```
 
 ### Bad
 
 ```typescript
-test('test', async ({ page }) => {
+test('test checkout', async ({ page }) => {
+  // login
+  await page.goto('http://localhost:3000/login')
+  await page.locator('#email').fill('testuser@example.com')
+  await page.locator('#password').fill('TestPass123!')
+  await page.locator('button[type="submit"]').click()
+  await page.waitForTimeout(2000)
+
+  // go to cart
+  await page.goto('http://localhost:3000/cart')
+  await page.locator('.add-to-cart-btn').first().click()
   await page.waitForTimeout(1000)
-  await page.goto('http://localhost:3000/login')        // hardcoded URL
-  await page.fill('#email', 'testuser@example.com')    // hardcoded credential + raw locator
-  await page.fill('#pass', 'TestPass123!')             // hardcoded credential + raw locator
-  await page.click('button')                           // ambiguous selector
-  await page.waitForTimeout(2000)                      // arbitrary wait
-  await page.click('.product:first-child button')      // positional + CSS
-  // ... 25 more lines
+
+  // checkout
+  await page.locator('[data-v-1234=""]').fill('4242424242424242')
+  // ... 30 more lines
 })
 ```
 
-The bad version: hardcoded URL, hardcoded credentials, meaningless test name, raw locators, arbitrary waits, tests 6 things at once, impossible to maintain.
+The bad version: hardcoded URL, hardcoded credentials, raw CSS selectors, arbitrary timeouts, no page objects, tests multiple unrelated things, impossible to maintain.
 
 ---
 
-## 14. Pre-Commit Checklist
+## 11. Quick Reference Checklist
 
-Before committing any Playwright file, verify:
+Before committing any test file, verify:
 
-- [ ] `test` and `expect` imported from `fixtures/base.ts` — not from `@playwright/test`
-- [ ] No raw locator calls in spec files — all through page object methods
+- [ ] Spec imports `test` from `../../fixtures`, not `@playwright/test`
+- [ ] No selectors in the spec file — all in page objects
+- [ ] No login steps in the spec file — using auth fixture
 - [ ] No hardcoded URLs — using `ROUTES` constants or `baseURL`
-- [ ] No hardcoded credentials, emails, or test values — all from `data/*.json`
-- [ ] No `page.waitForTimeout(N)` anywhere — using auto-waiting locators or `waitForResponse`
-- [ ] Every page object method wraps its body in `test.step()`
-- [ ] Every helper method wraps its body in `test.step()`
-- [ ] Locators are `private readonly` properties defined in the constructor — not inline in methods
-- [ ] Auth handled via `storageState` — no login steps in `test()` or `beforeEach`
-- [ ] Test names describe observable behaviour in plain English
-- [ ] Each `test()` tests one thing and is under 15 lines
-- [ ] New page classes registered in `fixtures/base.ts`
-- [ ] `playwright/.auth/` is in `.gitignore`
+- [ ] No hardcoded credentials — using `testData` or `env`
+- [ ] No `waitForTimeout` calls
+- [ ] Test names are plain English sentences
+- [ ] Each `test()` tests one behaviour
+- [ ] Page object methods are named as verb phrases
+- [ ] No `any` types
+- [ ] No nested describes deeper than 2 levels
