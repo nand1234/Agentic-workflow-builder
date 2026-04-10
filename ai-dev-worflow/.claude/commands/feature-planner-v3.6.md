@@ -1,3 +1,5 @@
+# 🛠️ COMMAND: /feature:planner (v3.8)
+
 **Role:** Senior Product Engineer & Test Architect  
 **Goal:** Document and architect features in a plan file before any implementation begins. Produce self-contained, sequentially executable task specifications that a fresh Claude session can run independently.
 
@@ -28,13 +30,20 @@ Classify the ticket before proceeding:
 
 ## PHASE 0.75: Clarification Step
 
-> **MUST** be completed before generating the plan. Ask the user these three questions and wait for answers before proceeding.
+> **Check for a requirements file first.** If `.claude/requirements/[feature_name]_requirements.md` exists, read Section 8 (Planner Handoff Notes) and use those answers — skip asking the three questions below.  
+> If no requirements file exists, ask the three questions and wait for answers before proceeding.  
+> If requirements are incomplete or missing Section 8, run `/requirement_discovery` first.
 
 1. **Entry point:** Where does this feature begin? (e.g. a new route, a UI action, a scheduled job)
 2. **Expected output:** What is the exact result when it works correctly? (e.g. returns a JWT, updates a DB record, sends an email)
 3. **Known constraints:** Are there any technical constraints, deadlines, or dependencies on other in-progress tickets?
 
 > Do not generate the plan until all three are answered. Vague answers produce vague plans.
+
+**If a requirements file was read**, also populate the following plan sections from it:
+- Section 1 (Feature Description) ← from Requirements Section 1 + 3
+- Impact Map ← inferred from Requirements Section 2 + 6
+- Blast Radius ← from Requirements Section 5 (out of scope helps define boundaries)
 
 ---
 
@@ -267,6 +276,13 @@ Classify the ticket before proceeding:
 **Next task:** Task [N+1] — [title]  
 **Key decisions made so far:** [running list of implementation decisions that affect future tasks]  
 **Blockers:** [anything unresolved — or "none"]
+
+**Worktrees:**
+| Task | Branch | Worktree Path | Status |
+|---|---|---|---|
+| Task 1 | `[branch-name]` | `.worktrees/[jira-key]-task-1/` | ⬜ Not created / 🔄 Active / ✅ Merged & removed |
+| Task 2 | `[branch-name]` | `.worktrees/[jira-key]-task-2/` | ⬜ Not created / 🔄 Active / ✅ Merged & removed |
+| Task 3 | `[branch-name]` | `.worktrees/[jira-key]-task-3/` | ⬜ Not created / 🔄 Active / ✅ Merged & removed |
 ```
 
 **⛔ STOP HERE. Do not write any code. Await user approval.**
@@ -282,16 +298,69 @@ Classify the ticket before proceeding:
 1. Read `skills/SEARCH_PROTOCOL.md` first
 2. Read the plan file and check Session State for current position
 3. Identify the first task with status ⬜ Pending — set it to 🔄 In Progress
-4. Execute **only that task** using its Task Specification as the sole guide
-5. Verify all **Done when** conditions are met before marking complete
-6. Mark task ✅ Complete in the Task Queue
-7. Update Session State — last completed, next task, any new decisions
-8. **Stop and report completion** — do not automatically start the next task
-9. Wait for user to confirm before proceeding to the next task
+4. **Create a git worktree and branch for this task** (see Git Worktree Rules below)
+5. Execute **only that task** inside the worktree using its Task Specification as the sole guide
+6. Verify all **Done when** conditions are met before marking complete
+7. Mark task ✅ Complete in the Task Queue
+8. Update Session State — last completed, next task, any new decisions, worktree path
+9. **Stop and report completion** — do not automatically start the next task
+10. Wait for user to confirm before proceeding to the next task
 
 > **Sequential enforcement:** Never execute Task N+1 while Task N is not ✅ Complete.  
 > **Scope enforcement:** Never implement anything outside the current task's specification.  
 > **Conflict check:** Before starting any task, verify no other session has set it to 🔄 In Progress.
+
+---
+
+## Git Worktree Rules
+
+Every task gets its own git worktree and branch so it can be reviewed, merged, and shipped independently.
+
+### Branch naming convention
+```
+[jira-key]/task-[N]-[slugified-task-title]
+```
+Examples:
+- `gp-001/task-1-create-worldline-session-endpoint`
+- `gp-002/task-2-initialise-worldline-js-sdk`
+
+Slugify rules: lowercase, spaces → hyphens, remove special characters.
+
+### Worktree path convention
+```
+.worktrees/[jira-key]-task-[N]/
+```
+Examples:
+- `.worktrees/gp-001-task-1/`
+- `.worktrees/gp-002-task-2/`
+
+### Setup commands (run at the start of each task)
+```bash
+# Create branch off main (or the base branch for this project)
+git checkout main && git pull
+
+# Create the worktree and branch in one step
+git worktree add .worktrees/[jira-key]-task-[N] -b [branch-name]
+
+# Confirm worktree is ready
+git worktree list
+```
+
+### Teardown (run after the task branch is merged)
+```bash
+# Remove the worktree once the PR is merged
+git worktree remove .worktrees/[jira-key]-task-[N]
+
+# Delete the local branch
+git branch -d [branch-name]
+```
+
+### Worktree enforcement rules
+- **One worktree per task** — never share a worktree across tasks
+- **Never commit directly to `main`** — all work happens in the task branch
+- **Branch off `main`** unless the task depends on a previous unmerged task, in which case branch off that task's branch and note it in Session State
+- **Record the worktree path and branch name in Session State** after creation so a resumed session can locate it immediately
+- If a worktree already exists for a task when starting, stop and report it — do not overwrite
 
 ---
 
