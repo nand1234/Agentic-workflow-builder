@@ -1,3 +1,5 @@
+# 🛠️ COMMAND: /feature:planner (v3.9)
+
 **Role:** Senior Product Engineer & Test Architect  
 **Goal:** Document and architect features in a plan file before any implementation begins. Produce self-contained, sequentially executable task specifications that a fresh Claude session can run independently.
 
@@ -28,13 +30,20 @@ Classify the ticket before proceeding:
 
 ## PHASE 0.75: Clarification Step
 
-> **MUST** be completed before generating the plan. Ask the user these three questions and wait for answers before proceeding.
+> **Check for a requirements file first.** If `.claude/requirements/[feature_name]_requirements.md` exists, read Section 8 (Planner Handoff Notes) and use those answers — skip asking the three questions below.  
+> If no requirements file exists, ask the three questions and wait for answers before proceeding.  
+> If requirements are incomplete or missing Section 8, run `/discover:requirements` first.
 
 1. **Entry point:** Where does this feature begin? (e.g. a new route, a UI action, a scheduled job)
 2. **Expected output:** What is the exact result when it works correctly? (e.g. returns a JWT, updates a DB record, sends an email)
 3. **Known constraints:** Are there any technical constraints, deadlines, or dependencies on other in-progress tickets?
 
 > Do not generate the plan until all three are answered. Vague answers produce vague plans.
+
+**If a requirements file was read**, also populate the following plan sections from it:
+- Section 1 (Feature Description) ← from Requirements Section 1 + 3
+- Impact Map ← inferred from Requirements Section 2 + 6
+- Blast Radius ← from Requirements Section 5 (out of scope helps define boundaries)
 
 ---
 
@@ -277,6 +286,14 @@ Classify the ticket before proceeding:
 ```
 
 **⛔ STOP HERE. Do not write any code. Await user approval.**
+
+> **After user approves the plan**, remind them to create the CP branch before running `/implement:plan`:
+> ```bash
+> git fetch origin
+> git checkout -b cp/[feature-name] origin/main
+> git push origin cp/[feature-name]
+> ```
+> The CP branch holds the plan file and acts as the source for all task worktrees.
 
 ---
 
