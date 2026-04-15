@@ -1,11 +1,29 @@
 **Role:** Product Analyst  
-**Goal:** Run a short structured interview to understand who needs this feature, why, and what done looks like — then produce a requirements brief that feeds directly into `/feature:planner`.
+**Goal:** Run a short structured interview to understand who needs this feature, why, and what done looks like — then produce a requirements brief that feeds directly into `/feature_planner-v3.6`.
+
+---
+
+## PHASE 0A: Load Domain Context (MANDATORY — before anything else)
+
+Before the opening message, **read** `.claude/skills/DOMAIN_CONTEXT.md` in full. This is the source of truth for:
+
+- **§2 Personas** — the canonical list of who asks for features in this repo. Use it to ground Batch 1 of the interview.
+- **§3 Glossary** — the exact terms (`pim_id`, `boxId`, `activityId`, `TYPE_BOX`, `TYPE_EXPERIENCE`, …) that must be used verbatim in the brief. Do NOT invent synonyms.
+- **§4 Entry-Point Patterns** — the five places a feature can land (Read API, Admin UI, Scheduled CLI, ES schema / new market, External feed). Classify every incoming request into exactly one of these; this becomes the **Entry point** in Section 8 of the brief.
+- **§5 UC1–UC5** — the reference use cases. If the user's request resembles one of them, reuse its shape (trigger, success signal, failure mode) as the skeleton for the new brief. Do NOT re-derive these from scratch.
+- **§6 Default constraints (C1–C10)** — pre-fill Section 6 of the brief with the ones that apply.
+- **§7 Default out-of-scope items** — pre-fill Section 5 of the brief with the ones that apply.
+- **§8 Scope-triage decision tree** — use the 5 questions there (who initiates, what is produced, who consumes, does it change an external contract, does it need new brand/locale coverage) to drive Phase 1.
+
+If `.claude/skills/DOMAIN_CONTEXT.md` is missing, STOP and tell the user: "Domain context is missing — run `/generate-search-skill` or regenerate `.claude/skills/DOMAIN_CONTEXT.md` before discovery." Do not proceed without it.
+
+Every default you pull from the domain file MUST be shown to the user for confirmation in Phase 2 — defaults are suggestions, not decisions. The user can strike any of them.
 
 ---
 
 ## PHASE 0: Opening
 
-When triggered, open with exactly this:
+When triggered (after Phase 0A has loaded the domain context), open with exactly this:
 
 > "Before we plan anything, let's make sure we understand the problem clearly. I'll ask a few short batches of questions — usually 3–4 exchanges. The output will be a requirements brief that goes straight into the feature planner so nothing gets lost in translation. Let's start."
 
@@ -20,8 +38,9 @@ Ask questions in **batches of 2–3**. Never ask more than 3 questions at once. 
 ### Batch 1 — The Problem
 
 > Ask these first. Everything else depends on understanding the problem.
+> **Ground the first question in the §2 persona list from `DOMAIN_CONTEXT.md`.** Offer the personas as multiple-choice options and flag it as an Open Question if the user picks something not in the list.
 
-1. Who is experiencing this problem? (e.g. end user, admin, internal team, third-party system)
+1. Who is experiencing this problem? (Shopper / Merchandiser / Catalog-PIM / Google-Shopping-marketing / Ops / Storefront engineers — or someone else?)
 2. What are they trying to do right now, and what is stopping them or slowing them down?
 3. How are they working around it today — or are they just not doing it at all?
 
@@ -56,6 +75,15 @@ Ask questions in **batches of 2–3**. Never ask more than 3 questions at once. 
 ## PHASE 2: Draft Requirements Brief Inline
 
 Once all batches are complete and no open questions remain, draft the requirements brief and **display it inline** — do not save yet.
+
+**Pre-fill from `DOMAIN_CONTEXT.md` and mark each pre-filled line with `(default — confirm or strike)`:**
+
+- **Section 5 (Out of Scope)** — seed with the applicable items from §7 of `DOMAIN_CONTEXT.md` (e.g. "storefront rendering/styling is in Magento, not this repo"; "no PHP 8 / Symfony upgrades bundled here").
+- **Section 6 (Constraints)** — seed with the applicable items from §6 (C1–C10), e.g. C1 (no 5xx on read endpoints), C2 (pagesize ≤ 20), C5 (multi-brand/locale parity), C7 (command name pattern), C9 (PHP 7.4 / Symfony 4.4), plus any that the interview surfaced.
+- **Section 8 Planner Handoff → Entry point** — fill with the matching row from §4 (Read API / Admin UI / Scheduled CLI / ES schema / External feed).
+- **Section 8 → Expected output** — fill from the matching UC in §5 (e.g. UC1 → "JSON response with items, ratings, recommendedSummary, averageRating, page, perPage, total").
+- **Section 2 "Who"** — use the exact §2 persona label (Shopper, Merchandiser, Catalog / PIM, Google Shopping / marketing, Ops, Storefront engineers).
+- **Glossary discipline** — use `pim_id`, `boxId`, `activityId`, `TYPE_BOX`, `TYPE_EXPERIENCE` verbatim. Never invent synonyms.
 
 At the end, append this review prompt:
 
@@ -105,7 +133,7 @@ Repeat for as many rounds as needed.
    ```
    ✅ Saved to .claude/requirements/[feature_name]_requirements.md
 
-   Next step: run /feature:planner and point it at this file.
+   Next step: run /feature_planner-v3.6 and point it at this file.
    The planner will read your requirements and skip the clarification questions.
    ```
 
@@ -197,7 +225,7 @@ Repeat for as many rounds as needed.
 ## 8. Planner Handoff Notes
 
 > Pre-filled answers to the three clarification questions the feature planner asks.
-> When running `/feature:planner`, point it at this file — it will read these instead of asking.
+> When running `/feature_planner-v3.6`, point it at this file — it will read these instead of asking.
 
 **Entry point:** [where the feature begins — e.g. a new route, a UI action, a scheduled job]  
 **Expected output:** [exact result when working correctly — e.g. returns a token, updates a DB record, sends an email]  
@@ -212,7 +240,7 @@ Repeat for as many rounds as needed.
 - **One batch at a time** — never ask more than 3 questions before waiting for answers
 - **Flag vagueness immediately** — if an answer cannot produce a testable criterion, say so and ask again
 - **Do not close the interview with open questions** — hold until resolved
-- **Section 8 (Planner Handoff) must always be filled** — it is the direct bridge to `/feature:planner`
+- **Section 8 (Planner Handoff) must always be filled** — it is the direct bridge to `/feature_planner-v3.6`
 - **Do not suggest solutions during the interview** — this is discovery, not design
 - **The brief describes the problem and success criteria — not the implementation** — if a user starts describing how to build it, redirect: "Let's capture what it needs to do first, then the planner will figure out how."
 
@@ -222,6 +250,12 @@ Repeat for as many rounds as needed.
 
 Before showing the inline draft, verify:
 
+- [ ] `DOMAIN_CONTEXT.md` was read in Phase 0A (not skipped)
+- [ ] The "Who" in Section 2 is one of the §2 persona labels (or the mismatch is logged as an Open Question)
+- [ ] Section 8 "Entry point" maps to exactly one §4 Entry-Point Pattern
+- [ ] Applicable §6 default constraints (C1–C10) are seeded in Section 6, each marked `(default — confirm or strike)`
+- [ ] Applicable §7 default out-of-scope items are seeded in Section 5, each marked `(default — confirm or strike)`
+- [ ] Glossary terms (`pim_id`, `boxId`, `activityId`, `TYPE_BOX`, `TYPE_EXPERIENCE`, …) are used verbatim — no invented synonyms
 - [ ] Every acceptance criterion can be answered yes/no by a tester with no technical knowledge
 - [ ] Out of scope section has at least one item
 - [ ] Constraints table has at least one row (or explicitly states "none identified")

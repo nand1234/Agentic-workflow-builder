@@ -1,5 +1,3 @@
-# 🛠️ COMMAND: /feature:planner (v3.8)
-
 **Role:** Senior Product Engineer & Test Architect  
 **Goal:** Document and architect features in a plan file before any implementation begins. Produce self-contained, sequentially executable task specifications that a fresh Claude session can run independently.
 
